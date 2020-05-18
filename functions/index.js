@@ -274,28 +274,31 @@ exports.makeRoom = functions.https.onCall((req, res) => {
 			return db.ref("Id/"+did).once("value").then((temp) => {
 				return admin.auth().getUserByEmail(temp.val()["id"]).then((userRecord) => {
 					var Mid = userRecord.uid;
-					return db.ref("Game/"+ID).set({
-						MaxP : mems,
-						Status : "Wait Users",
-						User1 : {
-							id : Mid,
-						},
-					}).then(() => {
-						return db.ref("Users/"+Mid+"/Status").set(ID).then(() => {
-							if (Rand_p === true){
-								return db.ref('Game/RandomG').push().set(ID).then(()=>{
+					return db.ref("Users/"+Mid).once("value").then((Snaper)=>{
+						return db.ref("Game/"+ID).set({
+							MaxP : mems,
+							Status : "Wait Users",
+							User1 : {
+								id : Mid,
+								name : Snaper.val()["Name"],
+							},
+						}).then(() => {
+							return db.ref("Users/"+Mid+"/Status").set(ID).then(() => {
+								if (Rand_p === true){
+									return db.ref('Game/RandomG').push().set(ID).then(()=>{
+										return({
+											Status : "Successfull",
+											Room : ID,
+										})
+									}).catch(cerr);
+								}
+								else{
 									return({
 										Status : "Successfull",
 										Room : ID,
 									})
-								}).catch(cerr);
-							}
-							else{
-								return({
-									Status : "Successfull",
-									Room : ID,
-								})
-							}
+								}
+							}).catch(cerr)
 						}).catch(cerr)
 					}).catch(cerr)
 				}).catch(cerr)
@@ -396,18 +399,23 @@ function room_Join(uid, gid){
 				}
 			}
 			else{
-				return db.ref("Game/" + gid + "/" + path).update({
-					id : uid,
-				}).then(() => {
-					return db.ref("Users/" + uid).update({
-						Status : gid,
+				return db.ref("Users/"+uid).once("value").then((snapX)=>{
+					return db.ref("Game/" + gid + "/" + path).update({
+						name : snapX.val()["Name"],
+						id : uid,
 					}).then(() => {
-						return{
-							Status : "Successfull",
-							Action : "Game"
-						}
+						return db.ref("Users/" + uid).update({
+							Status : gid,
+						}).then(() => {
+							game_Conversion(gid);
+							return{
+								Status : "Successfull",
+								Action : "Game"
+							}
+						}).catch(cerr)
 					}).catch(cerr)
 				}).catch(cerr)
+				
 			}
 		}
 		else{
@@ -682,8 +690,40 @@ function card_Distribute(people, gameid){
 		return("done")
 	}).catch(cerr)
 }
-
-exports.gameMaintain = functions.database.ref("Game/{mgid}").onUpdate((change, context) => {
+function game_Conversion(gid){
+	var db = admin.database();
+	var cerr = (err)=>{
+		return ({Status : err.message});
+	}
+	db.ref('Game/'+gid).once("value").then((snap) => {
+		Data = snap.val();
+		if(gid !== "Index"){
+			var max = Data["MaxP"];
+			var check = true;
+			var cnt = 0;
+			var path="";
+			while(cnt<max){
+				path = "User" + (cnt+1).toString();
+				if(Data[path]){
+					cnt = cnt + 1;
+				}
+				else{
+					check = false;
+					break;
+				}
+			}
+			if(check){
+				if (Data["Status"] === "Wait Users"){
+					takeBootE(gid);
+					card_Distribute(max,gid);
+					change_Player(gid, "User1", 1);
+				}
+			}
+		}
+		return
+	}).catch(cerr)
+}
+/*exports.gameMaintain = functions.database.ref("Game/{mgid}").onUpdate((change, context) => {
 	var db = admin.database();
 	var cerr = (err)=>{
 		return ({Status : err.message});
@@ -714,7 +754,7 @@ exports.gameMaintain = functions.database.ref("Game/{mgid}").onUpdate((change, c
 		}
 	}
 })
-
+*/
 
 function makeFold(No, gid){
 	var db = admin.database();
@@ -761,6 +801,8 @@ function setWinner(gid, uData){
 				return db.ref("Game/"+gid).update({
 					Pot : 0,
 					Winner : Data,
+					Round : "Voting",
+					Chance : 0,
 				}).then(() => {
 					return"Done";
 				}).catch(cerr)
